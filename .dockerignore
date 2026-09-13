@@ -1,0 +1,12 @@
+node_modules
+.venv
+.git
+.env
+.sites-runtime
+dist
+data
+*.pdf
+*.crdownload
+output
+**/__pycache__
+**/*.pyc

@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.venv/
+.pytest_cache/
+.openai/
+__pycache__/
+*.pyc
+.env
+*.db
+*.pdf
+!public/reports/*.pdf
+*.crdownload
+data/extracted/
+data/processed/
+.sites-runtime/
+*.tsbuildinfo
+output/
