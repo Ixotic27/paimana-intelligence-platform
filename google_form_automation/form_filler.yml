@@ -1,0 +1,98 @@
+name: Google Form Automated Submissions
+
+on:
+  schedule:
+    # Runs every 25 minutes between 10:00 UTC and 19:00 UTC (3:30 PM IST to 12:30 AM IST)
+    - cron: '*/25 10-18 * * *'
+  workflow_dispatch:
+    inputs:
+      batch_count:
+        description: 'Number of responses to submit in this run (or type "auto" to calculate based on remaining time until midnight IST)'
+        required: false
+        default: '6'
+      target_total:
+        description: 'Target total responses by midnight IST'
+        required: false
+        default: '100'
+
+permissions:
+  contents: write
+
+jobs:
+  fill_form:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run Survey Generator
+        env:
+          INPUT_BATCH_COUNT: ${{ github.event.inputs.batch_count || 'auto' }}
+          TARGET_TOTAL: ${{ github.event.inputs.target_total || '100' }}
+        run: |
+          python - << 'EOF'
+          import os
+          import sys
+          import json
+          import random
+          from datetime import datetime, timezone, timedelta
+
+          # Import from google_form_automation
+          sys.path.append(os.path.abspath("google_form_automation"))
+          from fill_survey import run_batch, load_progress, IST
+
+          target_total = int(os.environ.get("TARGET_TOTAL", 100))
+          input_batch = os.environ.get("INPUT_BATCH_COUNT", "auto").strip()
+
+          progress = load_progress()
+          already_done = progress.get("submitted", 0)
+          print(f"Current progress: {already_done}/{target_total} submitted.")
+
+          if already_done >= target_total:
+              print(f"Target of {target_total} already reached. Exiting gracefully.")
+              sys.exit(0)
+
+          remaining = target_total - already_done
+
+          if input_batch == "auto" or input_batch == "":
+              # Calculate based on time left until midnight IST
+              now = datetime.now(IST)
+              midnight = now.replace(hour=23, minute=59, second=59, microsecond=0)
+              seconds_left = max(60, (midnight - now).total_seconds())
+              hours_left = seconds_left / 3600.0
+
+              # For ~25 min intervals, intervals_left is roughly hours_left * 2.4
+              intervals_left = max(1, int(hours_left * 2.4))
+              ideal_batch = max(2, int(remaining / intervals_left))
+              # Add random variance (+/- 1 or 2)
+              count = min(remaining, random.randint(max(2, ideal_batch - 1), ideal_batch + 2))
+          else:
+              try:
+                  count = min(remaining, int(input_batch))
+              except ValueError:
+                  count = min(remaining, random.randint(4, 7))
+
+          print(f"Selected batch size for this run: {count}")
+          # Random delay between 15 and 40 seconds between responses
+          min_delay = random.uniform(12, 18)
+          max_delay = random.uniform(28, 42)
+          run_batch(count=count, min_delay=min_delay, max_delay=max_delay)
+          EOF
+
+      - name: Commit & Push Progress
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add form_progress.json || true
+          if git diff --staged --quiet; then
+            echo "No progress file changes to commit."
+          else
+            git commit -m "chore: automated survey submissions update [skip ci]"
+            git push origin HEAD || echo "Push failed or nothing to push"
+          fi
